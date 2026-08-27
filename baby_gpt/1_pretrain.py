@@ -1,4 +1,5 @@
 import os
+import json
 import pickle
 import numpy as np
 from tokenizer import QATokenizer
@@ -15,38 +16,32 @@ def pretrain():
         pretrain_paragraphs = [line.strip() for line in f if line.strip()]
 
     # Read SFT text to build a unified vocabulary
-    import json
     with open(sft_file, "r") as f:
         sft_texts = [json.loads(line)["full_text"] for line in f]
 
-    # 1. Fit Tokenizer on ALL text to create the full English vocabulary
+    # 1. Fit Tokenizer on ALL text (Historical + Modern)
     tokenizer = QATokenizer()
     tokenizer.fit(pretrain_paragraphs + sft_texts)
     vocab_size = len(tokenizer.word2id)
 
     print("=" * 65)
-    print("🚀 STAGE 1: PRE-TRAINING THE BASE MODEL (Raw World Knowledge)")
+    print("🚀 STAGE 1: PRE-TRAINING THE BASE MODEL (Historical + Modern Corpus)")
     print("=" * 65)
     print(f"Vocabulary Size: {vocab_size} tokens")
-    print(f"Knowledge Corpus: {len(pretrain_paragraphs)} continuous paragraphs")
+    print(f"Knowledge Corpus: {len(pretrain_paragraphs)} continuous paragraphs (1826, 1927, Modern)")
     print("Goal: Learn English grammar, concepts, facts, and word relationships.\n")
 
     # 2. Tokenize raw knowledge into sequences
     encoded_paragraphs = [tokenizer.encode(p) for p in pretrain_paragraphs]
-    max_len = max(len(seq) for seq in encoded_paragraphs) + 5
+    max_len = min(64, max(len(seq) for seq in encoded_paragraphs) + 2)
 
     # 3. Initialize Base Model with random weights
     model = BabyGPT(vocab_size=vocab_size, max_seq_len=max_len, d_model=64, d_ff=128, seed=42)
 
     # 4. Pre-training Loop (Causal Next-Word Prediction)
-    epochs = 60
+    epochs = 20
     lr = 0.02
-
-    # Augment pretrain batches by repeating paragraphs with slight variations
-    training_data = []
-    for _ in range(30):
-        for seq in encoded_paragraphs:
-            training_data.append(seq)
+    training_data = encoded_paragraphs
 
     print(f"Pre-training across {len(training_data)} training sequences for {epochs} epochs...")
 
@@ -55,6 +50,11 @@ def pretrain():
         total_loss = 0.0
 
         for seq in training_data:
+            # Truncate to max_len if needed
+            seq = seq[:max_len]
+            if len(seq) < 3:
+                continue
+
             inputs = seq[:-1]
             targets = seq[1:]
 
@@ -66,7 +66,7 @@ def pretrain():
 
         avg_loss = total_loss / len(training_data)
 
-        if epoch % 15 == 0 or epoch == 1:
+        if epoch % 5 == 0 or epoch == 1:
             print(f"Epoch {epoch:2d}/{epochs} | Pre-training Causal Loss: {avg_loss:.4f}")
 
     # 5. Save the Base Model
@@ -88,7 +88,7 @@ def pretrain():
     test_prefixes = [
         "Paris is the capital city of",
         "Butter chicken is a classic North Indian",
-        "Progressive resistance training with",
+        "BALTIMORE, September",
         "FastAPI is a modern high",
         "The S&P 500 index represents"
     ]

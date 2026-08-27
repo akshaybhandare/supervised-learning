@@ -1,8 +1,12 @@
 import re
+import collections
 
 
 class QATokenizer:
-    def __init__(self):
+    def __init__(self, max_vocab_size: int = 5000, min_freq: int = 2):
+        self.max_vocab_size = max_vocab_size
+        self.min_freq = min_freq
+
         self.pad_token = "<pad>"
         self.unk_token = "<unk>"
         self.bos_token = "<bos>"
@@ -25,13 +29,21 @@ class QATokenizer:
         return result
 
     def fit(self, texts: list[str]) -> None:
-        """Build vocabulary from texts."""
+        """Build vocabulary from texts, filtering one-off OCR typos."""
+        counter = collections.Counter()
         for text in texts:
             for tok in self.tokenize(text):
-                if tok not in self.word2id:
-                    new_id = len(self.word2id)
-                    self.word2id[tok] = new_id
-                    self.id2word[new_id] = tok
+                if tok not in self.special_tokens:
+                    counter[tok] += 1
+
+        # Keep words that meet min_freq, sorted by frequency
+        most_common = counter.most_common(self.max_vocab_size - len(self.special_tokens))
+
+        for tok, count in most_common:
+            if count >= self.min_freq and tok not in self.word2id:
+                new_id = len(self.word2id)
+                self.word2id[tok] = new_id
+                self.id2word[new_id] = tok
 
     def encode(self, text: str) -> list[int]:
         """Convert text into token IDs."""
@@ -47,24 +59,6 @@ class QATokenizer:
                 continue
             words.append(tok)
 
-        # Clean spacing for punctuation
         text = " ".join(words)
         text = re.sub(r"\s+([.,!?:;])", r"\1", text)
         return text.strip()
-
-
-if __name__ == "__main__":
-    import json
-    with open("qa_data.jsonl") as f:
-        data = [json.loads(line)["text"] for line in f]
-
-    tok = QATokenizer()
-    tok.fit(data)
-    print(f"Vocabulary size: {len(tok.word2id)} tokens")
-
-    sample = data[0]
-    encoded = tok.encode(sample)
-    decoded = tok.decode(encoded, skip_special=False)
-    print(f"\nOriginal: {sample}")
-    print(f"Token IDs ({len(encoded)}): {encoded[:8]} ...")
-    print(f"Decoded:  {decoded}")

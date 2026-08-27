@@ -1,106 +1,122 @@
-# Baby-GPT: Pure NumPy Causal Transformer Q&A Model
+# Baby-GPT: 2-Stage Full GPT Lifecycle (Pre-training & Post-training / SFT)
 
-A complete, lightweight **Autoregressive Causal Transformer (GPT)** built from scratch using **pure NumPy** with zero PyTorch / deep learning framework dependencies.
-
----
-
-## 🧠 Architecture Overview
-
-$$\text{Token IDs } [t_0, t_1, \dots, t_T] \xrightarrow{\text{Embedding}} X_0 \xrightarrow{\text{Causal Self-Attention}} X_1 \xrightarrow{\text{FeedForward (FFN)}} X_2 \xrightarrow{\text{LM Head}} \text{Logits} \xrightarrow{\text{Softmax}} \text{Next Token Probabilities}$$
-
-### Core Transformer Components (Implemented from Scratch in NumPy)
-
-1. **Token + Positional Embeddings:**
-   $$X_0 = W_{\text{tok}}[t] + W_{\text{pos}}[\text{pos}]$$
-2. **Causal Masked Self-Attention:**
-   $$Q = X_0 W_Q + b_Q, \quad K = X_0 W_K + b_K, \quad V = X_0 W_V + b_V$$
-   $$\text{Scores} = \frac{Q K^T}{\sqrt{d_{\text{model}}}} + \text{CausalMask} \quad (\text{future tokens masked to } -\infty)$$
-   $$\text{AttnWeights} = \text{Softmax}(\text{Scores}), \quad X_1 = X_0 + \text{AttnWeights} \cdot V \cdot W_O + b_O$$
-3. **FeedForward Network (FFN) with Residual Connection:**
-   $$X_2 = X_1 + \text{ReLU}(X_1 W_{\text{ff1}} + b_{\text{ff1}}) W_{\text{ff2}} + b_{\text{ff2}}$$
-4. **Language Model Output Head:**
-   $$\text{Logits} = X_2 W_{\text{head}} + b_{\text{head}} \quad \in \mathbb{R}^{T \times V}$$
-5. **Autoregressive Generation Loop (`generate`):**
-   Feeds the current prompt, computes logits for the last token, samples the next token, appends it, and repeats until the `<eos>` token is emitted.
+A pure **NumPy Causal Transformer** that faithfully demonstrates the exact **2-stage lifecycle** of modern Large Language Models (like LLaMA and ChatGPT) from scratch.
 
 ---
 
-## 🚀 How to Run
+## 🧠 The 2 Stages of GPT
 
-Navigate to the `baby_gpt/` directory:
+```text
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ STAGE 1: Pre-training (The Base Model)                                                 │
+│ ──────────────────────────────────────                                                 │
+│ • Input: Raw continuous knowledge paragraphs (data/pretrain_corpus.txt).               │
+│          (No questions, no answers, no chat format).                                   │
+│ • Objective: Next-token prediction across raw human knowledge and facts.               │
+│ • Output: base_model.pkl                                                               │
+│                                                                                        │
+│ ⚠️ Base Model Behavior:                                                                │
+│    • Prompt: "Paris is the capital city of"                                            │
+│      -> Completes: "france, located along the seine river..." ✅                        │
+│    • Prompt: "User: Where did you stay in Paris? Assistant:"                           │
+│      -> Rambles / fails because it was never trained on chat formatting! ❌             │
+└────────────────────────────────────────┬───────────────────────────────────────────────┘
+                                         │
+                                         ▼
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ STAGE 2: Post-Training / Supervised Fine-Tuning (The Chat Model)                       │
+│ ────────────────────────────────────────────────────────────────                       │
+│ • Input: Curated dialogue prompt-response pairs (data/sft_dialogues.jsonl).            │
+│ • Objective: Adapt the knowledgeable Base Model to conversational instruction format.   │
+│ • Output: chat_model.pkl                                                               │
+│                                                                                        │
+│ ✨ Chat Model Behavior:                                                                │
+│    • Prompt: "User: Where did you stay in Paris?"                                      │
+│      -> Assistant: "I stayed at a boutique hotel overlooking the Eiffel Tower." ✅      │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+```
 
+---
+
+## 🚀 How to Run the Full Pipeline
+
+Navigate to `baby_gpt/`:
 ```bash
 cd baby_gpt
 ```
 
-### 1. (Optional) Generate Training Dataset
+### Step 0: (Optional) Generate the Raw Corpus & SFT Datasets
 ```bash
-uv run python qa_data.py
+uv run python create_datasets.py
 ```
 
-### 2. Train Baby-GPT
+### Step 1: Pre-train the Base Model (Stage 1)
+Trains the model on raw knowledge paragraphs and saves `base_model.pkl`:
 ```bash
-uv run python train.py
+uv run python 1_pretrain.py
 ```
+
+### Step 2: Inspect Base Model Behavior (Why Base Models Can't Chat)
+See how the Base Model completes raw sentences vs why it fails on chat prompts:
+```bash
+uv run python 2_test_base.py
+```
+
+### Step 3: Fine-tune the Chat Model via SFT (Stage 2)
+Takes `base_model.pkl` and fine-tunes it on conversational dialogues into `chat_model.pkl`:
+```bash
+uv run python 3_post_train.py
+```
+
+### Step 4: Live Interactive Chat with the Fine-Tuned Model
+```bash
+uv run python 4_chat.py
+```
+
+**Live Chat Output:**
 ```text
-=== Baby-GPT Q&A Language Model (Pure NumPy) ===
-Vocabulary Size: 548 tokens | Training Examples: 1500
-
-Epoch  1/40 | Cross-Entropy Loss: 4.1249
-Epoch 10/40 | Cross-Entropy Loss: 0.4510
-Epoch 20/40 | Cross-Entropy Loss: 0.2345
-Epoch 40/40 | Cross-Entropy Loss: 0.2190
-
-✓ Model successfully saved to 'baby_gpt.pkl'
-```
-
----
-
-### 3. Interactive Q&A Chat Loop
-```bash
-uv run python chat.py
-```
-```text
-============================================================
-🤖 Baby-GPT Q&A Language Model (Pure NumPy Transformer)
+=================================================================
+🤖 Baby-GPT Chat Model (Post-Trained / SFT)
 Ask questions about Travel, Food, Health, Tech, or Finance!
-Type 'quit', 'exit', or 'q' to stop
-============================================================
+Type 'quit', 'exit', or 'q' to exit
+=================================================================
 
-Ask a question: Where did you stay in Paris?
-Baby-GPT: at a boutique hotel with a balcony overlooking the eiffel tower.
+You: Where did you stay in Paris?
+Baby-GPT: i stayed at a boutique hotel with a balcony overlooking the eiffel tower.
 
-Ask a question: What did you cook for Sunday dinner?
-Baby-GPT: homemade butter chicken with garlic naan for the whole family.
+You: What is butter chicken served with?
+Baby-GPT: butter chicken is traditionally served with warm garlic naan and steamed rice.
 
-Ask a question: What is your bench press record?
-Baby-GPT: hit a new personal record of 225 lbs for 5 clean reps.
+You: What is a milestone for bench press?
+Baby-GPT: a bench press of 225 pounds is a classic strength milestone.
 
-Ask a question: What framework did you use for the API?
-Baby-GPT: built a high - performance rest api using python and fastapi.
+You: What is FastAPI used for?
+Baby-GPT: fastapi is a python web framework used to build high - performance rest apis.
 
-Ask a question: What index fund do you invest in?
-Baby-GPT: invested in the low - cost s & p 500 index fund voo every month.
-```
+You: What is a Roth IRA?
+Baby-GPT: a roth ira is an account where post - tax money grows and is withdrawn tax - free in retirement.
 
-Or pass a single question directly:
-```bash
-uv run python chat.py "What did you see in Iceland?"
-# -> Baby-GPT: the northern lights appeared at night and we drove past frozen waterfalls.
+You: What makes Iceland unique?
+Baby-GPT: iceland is famous for dramatic waterfalls, volcanic landscapes, and the green northern lights.
 ```
 
 ---
 
-## 📁 Folder Structure
+## 📁 Repository Layout
 
 ```text
 baby_gpt/
-├── qa_data.py       # Dataset generator (1,500 prompt-response pairs)
-├── qa_data.jsonl    # Training data
-├── tokenizer.py     # QATokenizer (<bos>, <eos>, <pad>, <unk>)
-├── model.py         # BabyGPT (Causal Attention, FFN, Backprop in pure NumPy)
-├── train.py         # Training loop with sample generation & checkpointing
-├── chat.py          # Interactive CLI Q&A inference engine
-├── baby_gpt.pkl     # Trained model checkpoint
-└── README.md        # Documentation
+├── data/
+│   ├── pretrain_corpus.txt    # Stage 1: Raw knowledge paragraphs
+│   └── sft_dialogues.jsonl    # Stage 2: Conversational instruction dialogues
+├── create_datasets.py         # Dataset generator for both stages
+├── tokenizer.py               # Tokenizer (<bos>, <eos>, <pad>, <unk>)
+├── model.py                   # BabyGPT Causal Transformer (NumPy)
+├── 1_pretrain.py              # Stage 1 Pre-training script -> base_model.pkl
+├── 2_test_base.py             # Script demonstrating Base Model vs Chat Model
+├── 3_post_train.py            # Stage 2 SFT Post-training script -> chat_model.pkl
+├── 4_chat.py                  # Interactive Chat CLI for Chat Model
+├── base_model.pkl             # Serialized Base Model weights
+├── chat_model.pkl             # Serialized Chat Model weights
+└── README.md                  # Detailed 2-stage documentation
 ```
